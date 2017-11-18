@@ -37,7 +37,9 @@ data = pd.read_csv('datasets/connect-4.data', header=None, names=column_names)
 # since we have string values ('x', 'o', 'b') and not only numeric values:
 # https://stackoverflow.com/questions/24458645/label-encoding-across-multiple-columns-in-scikit-learn
 data = data.apply(LabelEncoder().fit_transform)
+print("Dataset: Connect 4")
 print('Dataset Size:', data.shape)
+print()
 
 # split into 80% training data, 20% test data
 (train, test) = train_test_split(data, test_size=0.2)
@@ -55,5 +57,11 @@ model.fit(training_samples, training_target)
 predictions = model.predict(test_samples)
 
 # summarize the fit of the model
+print("=" * 80)
+print()
+print("Statistics for applied classifier (Random Forests):")
+print()
+print("Classification Report:")
 print(metrics.classification_report(test_target, predictions))
+print("Confusion Matrix:")
 print(metrics.confusion_matrix(test_target, predictions))
