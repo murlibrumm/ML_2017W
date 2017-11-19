@@ -7,9 +7,16 @@
 * Connect-4: https://archive.ics.uci.edu/ml/datasets/Connect-4
 * Skillcraft1: https://archive.ics.uci.edu/ml/datasets/skillcraft1+master+table+dataset
 
+## used learning methods for classification
+
+* Random forest
+* K-nearest neighbors
+* Naive Bayes
+* Neural network
+
 ## Group Members
 
-* Georg Faustmann (0#######)
+* Georg Faustmann (01326020)
 * Maximilian Moser (01326252)
 * Wolfgang Weintritt (0#######)
 
