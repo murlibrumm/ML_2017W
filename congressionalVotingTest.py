@@ -65,7 +65,7 @@ def convertCSV(filename,trainingsFile):
 # ---------------------------------------------------------
 
 # read in test data
-X_train, y_train = convertCSV("CongressionalVotingID.shuf.train.csv", True)
+X_train, y_train = convertCSV("./datasets/CongressionalVotingID.shuf.train.csv", True)
 
 # define trainings algorithm
 clf = RandomForestClassifier(n_estimators=10)
@@ -74,7 +74,7 @@ clf = RandomForestClassifier(n_estimators=10)
 print(clf.fit(X_train, y_train))
 
 # obtain the test data
-X_test, y_test = convertCSV("CongressionalVotingID.shuf.test.csv", False)
+X_test, y_test = convertCSV("./datasets/CongressionalVotingID.shuf.test.csv", False)
 
 # prediction of the test data
 y_pred = clf.predict(X_test)
