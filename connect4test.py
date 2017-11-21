@@ -25,6 +25,18 @@ def split_samples(dataset, target_columns):
     return (samples, target)
 
 
+def show_summary(targets, predictions, classifier):
+    """Print the result of calculated predictions vs. actual targets for the classifier algorithm"""
+    print("=" * 80)
+    print()
+    print("Statistics for applied classifier ({0}):".format(classifier))
+    print()
+    print("Classification Report:")
+    print(metrics.classification_report(targets, predictions))
+    print("Confusion Matrix:")
+    print(metrics.confusion_matrix(targets, predictions))
+
+
 # the column names for the Connect 4 Dataset, since they're not included in the data file
 column_names = ["a1", "a2", "a3", "a4", "a5", "a6", "b1", "b2", "b3", "b4", "b5", "b6",
                 "c1", "c2", "c3", "c4", "c5", "c6", "d1", "d2", "d3", "d4", "d5", "d6",
@@ -49,19 +61,19 @@ print()
 (training_samples, training_target) = split_samples(train, ["Class"])
 (test_samples, test_target) = split_samples(test, ["Class"])
 
-# random forest model
-model = RandomForestClassifier(n_estimators=10) # 10 trees
-model.fit(training_samples, training_target)
+# add the various classifiers
+classifiers = []
+classifiers.append((RandomForestClassifier(n_estimators=10), "Random Forests (n=10)"))
+classifiers.append((KNeighborsClassifier(n_neighbors=5), "kNN (n=5)"))
+classifiers.append((GaussianNB(priors=None), "Naive Bayes (priors=None)"))
+classifiers.append((MLPClassifier(hidden_layer_sizes=(100,)), "Neural Network (hidden layers=100)"))
 
-# predict the samples
-predictions = model.predict(test_samples)
+for (model, name) in classifiers:
+    # for each classifier, do the training and evaluation
+    model.fit(training_samples, training_target)
 
-# summarize the fit of the model
-print("=" * 80)
-print()
-print("Statistics for applied classifier (Random Forests):")
-print()
-print("Classification Report:")
-print(metrics.classification_report(test_target, predictions))
-print("Confusion Matrix:")
-print(metrics.confusion_matrix(test_target, predictions))
+    # predict the samples
+    predictions = model.predict(test_samples)
+
+    # summarize the fit of the model
+    show_summary(test_target, predictions, name)
