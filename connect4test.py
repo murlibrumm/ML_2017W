@@ -38,6 +38,12 @@ def show_summary(targets, predictions, classifier):
     print(metrics.confusion_matrix(targets, predictions))
 
 
+def append(list_, item):
+    """Append item to the list if it isn't contained in the list yet"""
+    if item not in list_:
+        list_.append(item)
+
+
 algorithms = []
 
 if len(argv) == 2 and (argv[1] == "-h" or argv[1] == "--help"):
@@ -60,13 +66,15 @@ elif len(argv) >= 2:
 
         # check the arguments if we can recognise some algorithm names
         if alg in "random forest" and (alg[0] == "r" or alg[0] == "f"):
-            algorithms.append("forest")
+            append(algorithms, "forest")
         elif alg in "knn" and alg[0] == "k":
-            algorithms.append("knn")
+            append(algorithms, "knn")
         elif alg in "naive bayes" and (alg[0] == "n" or alg[0] == "b"):
-            algorithms.append("bayes")
+            append(algorithms, "bayes")
         elif alg in "neural networks" and alg[0] == "n":
-            algorithms.append("neural")
+            append(algorithms, "neural")
+        elif alg in "mlp" and alg[0] == "m":
+            append(algorithms, "neural")
         elif alg in "all" and alg[0] == "a":
             algorithms = ["forest", "knn", "bayes", "neural"]
 
@@ -75,6 +83,7 @@ elif len(argv) == 1:
     algorithms = ["forest", "knn", "bayes", "neural"]
 
 # the column names for the Connect 4 Dataset, since they're not included in the data file
+# Class: ["win", "loss", "draw"]
 column_names = ["a1", "a2", "a3", "a4", "a5", "a6", "b1", "b2", "b3", "b4", "b5", "b6",
                 "c1", "c2", "c3", "c4", "c5", "c6", "d1", "d2", "d3", "d4", "d5", "d6",
                 "e1", "e2", "e3", "e4", "e5", "e6", "f1", "f2", "f3", "f4", "f5", "f6",
@@ -87,7 +96,8 @@ data = pd.read_csv('datasets/connect-4.data', header=None, names=column_names)
 # https://stackoverflow.com/questions/24458645/label-encoding-across-multiple-columns-in-scikit-learn
 data = data.apply(LabelEncoder().fit_transform)
 print("Dataset: Connect 4")
-print('Dataset Size:', data.shape)
+print("Dataset Size: ", data.shape)
+print("Predicted Classes: win / loss / draw")
 print()
 
 # split into 80% training data, 20% test data
@@ -98,16 +108,26 @@ print()
 (training_samples, training_target) = split_samples(train, ["Class"])
 (test_samples, test_target) = split_samples(test, ["Class"])
 
+# change the classifier values here!
+rf_n_estimators = 10
+knn_n_neighbors = 250 # default: 5
+nb_priors = None
+mlp_layers = (100) # default: (100,)
+
 # add the various classifiers
 classifiers = []
 if "forest" in algorithms:
-    classifiers.append((RandomForestClassifier(n_estimators=10), "Random Forests (n=10)"))
+    name = "Random Forests (n={0})".format(rf_n_estimators)
+    classifiers.append((RandomForestClassifier(n_estimators=rf_n_estimators), name))
 if "knn" in algorithms:
-    classifiers.append((KNeighborsClassifier(n_neighbors=5), "kNN (n=5)"))
+    name = "kNN (n={0})".format(knn_n_neighbors)
+    classifiers.append((KNeighborsClassifier(n_neighbors=knn_n_neighbors), name))
 if "bayes" in algorithms:
-    classifiers.append((GaussianNB(priors=None), "Naive Bayes (priors=None)"))
+    name = "Naive Bayes (priors={0})".format(nb_priors)
+    classifiers.append((GaussianNB(priors=nb_priors), name))
 if "neural" in algorithms:
-    classifiers.append((MLPClassifier(hidden_layer_sizes=(100,)), "Neural Network (layers=100)"))
+    name = "Neural Network (layers={0})".format(mlp_layers)
+    classifiers.append((MLPClassifier(hidden_layer_sizes=mlp_layers), name))
 
 for (model, name) in classifiers:
     # for each classifier, do the training and evaluation
