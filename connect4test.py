@@ -1,6 +1,7 @@
 #!/bin/env python
 """Script for playing around with the connect-4 data set"""
 
+from sys import argv
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
@@ -37,6 +38,42 @@ def show_summary(targets, predictions, classifier):
     print(metrics.confusion_matrix(targets, predictions))
 
 
+algorithms = []
+
+if len(argv) == 2 and (argv[1] == "-h" or argv[1] == "--help"):
+    # print help
+    print("Usage: {0} [ALGORITHMS]".format(argv[0]))
+    print()
+    print("\tALGORITHMS")
+    print("\t\tSpecifies which classification algorithms to run:")
+    print("\t\t\t* random forest")
+    print("\t\t\t* knn")
+    print("\t\t\t* naive bayes")
+    print("\t\t\t* neural network")
+    print("\t\t\t* all")
+    print("\t\tIf no algorithm is specified, all will be run")
+    exit(0)
+
+elif len(argv) >= 2:
+    for alg in argv[1:]:
+        alg = alg.lower()
+
+        # check the arguments if we can recognise some algorithm names
+        if alg in "random forest" and (alg[0] == "r" or alg[0] == "f"):
+            algorithms.append("forest")
+        elif alg in "knn" and alg[0] == "k":
+            algorithms.append("knn")
+        elif alg in "naive bayes" and (alg[0] == "n" or alg[0] == "b"):
+            algorithms.append("bayes")
+        elif alg in "neural networks" and alg[0] == "n":
+            algorithms.append("neural")
+        elif alg in "all" and alg[0] == "a":
+            algorithms = ["forest", "knn", "bayes", "neural"]
+
+elif len(argv) == 1:
+    # if the program was started without arguments, just run all algorithms
+    algorithms = ["forest", "knn", "bayes", "neural"]
+
 # the column names for the Connect 4 Dataset, since they're not included in the data file
 column_names = ["a1", "a2", "a3", "a4", "a5", "a6", "b1", "b2", "b3", "b4", "b5", "b6",
                 "c1", "c2", "c3", "c4", "c5", "c6", "d1", "d2", "d3", "d4", "d5", "d6",
@@ -63,10 +100,14 @@ print()
 
 # add the various classifiers
 classifiers = []
-classifiers.append((RandomForestClassifier(n_estimators=10), "Random Forests (n=10)"))
-classifiers.append((KNeighborsClassifier(n_neighbors=5), "kNN (n=5)"))
-classifiers.append((GaussianNB(priors=None), "Naive Bayes (priors=None)"))
-classifiers.append((MLPClassifier(hidden_layer_sizes=(100,)), "Neural Network (hidden layers=100)"))
+if "forest" in algorithms:
+    classifiers.append((RandomForestClassifier(n_estimators=10), "Random Forests (n=10)"))
+if "knn" in algorithms:
+    classifiers.append((KNeighborsClassifier(n_neighbors=5), "kNN (n=5)"))
+if "bayes" in algorithms:
+    classifiers.append((GaussianNB(priors=None), "Naive Bayes (priors=None)"))
+if "neural" in algorithms:
+    classifiers.append((MLPClassifier(hidden_layer_sizes=(100,)), "Neural Network (layers=100)"))
 
 for (model, name) in classifiers:
     # for each classifier, do the training and evaluation
