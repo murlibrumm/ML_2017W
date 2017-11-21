@@ -109,9 +109,9 @@ print()
 (test_samples, test_target) = split_samples(test, ["Class"])
 
 # change the classifier values here!
-rf_n_estimators = 10
-knn_n_neighbors = 250 # default: 5
-nb_priors = None
+rf_n_estimators = 10 # default: 10
+knn_n_neighbors = 5 # default: 5
+nb_priors = None # default: None
 mlp_layers = (100) # default: (100,)
 
 # add the various classifiers
