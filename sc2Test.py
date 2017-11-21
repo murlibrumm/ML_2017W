@@ -3,11 +3,13 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.neighbors import KNeighborsClassifier, RadiusNeighborsClassifier
 from sklearn.naive_bayes import BernoulliNB, GaussianNB, MultinomialNB
 from sklearn.neural_network import BernoulliRBM, MLPClassifier, MLPRegressor
+from sklearn.exceptions import UndefinedMetricWarning
 from sklearn import metrics
 from sklearn import preprocessing
 import sys
 from sklearn.model_selection import train_test_split
 import numpy as np
+import warnings
 
 
 # TODO:
@@ -34,6 +36,8 @@ mlp_layers = (100) # default: (100,)
 
 
 def main():
+    # filter warnings of the type UndefinedMetricWarning
+    warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
     readDataset()
     handleMissingValues()
     trainAndPredict()
@@ -119,7 +123,7 @@ def printResults(actual_leagues, predicted_leagues, classifier):
     print("=== Classification Report: ===\n"
           "precision (How many selected elements are relevant?): TP / (TP + FP)\n"
           "recall (How many relevant elements are selected?): TP / (TP + FN)\n"
-          "f1 score to measure a test's accuracy (considers both precision and recall): 2*((PR + RC)/(PR + RC))\n"
+          "f1 score to measure a test's accuracy (considers both precision and recall): 2*((PR * RC)/(PR + RC))\n"
           "support: #elements in this class\n", metrics.classification_report(actual_leagues, predicted_leagues))
     print("=== Confusion Matrix: ===\n"
           "top: predicted values, left: actual values\n",
