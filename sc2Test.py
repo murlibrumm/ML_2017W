@@ -10,6 +10,7 @@ import sys
 from sklearn.model_selection import train_test_split
 import numpy as np
 import warnings
+from functools import reduce
 
 
 # TODO:
@@ -25,7 +26,9 @@ LOGGING          = False    # verbose logging output
 SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
 MISSING_VALUES   = 'delete' # how to deal with missing values (delete, mean, median, most_frequent)
-SIGNIFICATN_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
+SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
+NUMBER_OF_RUNS   = 5
+RESULT_FORMAT    = '({:0.2f}, {:0.2f}, {:0.2f})'
 
 # change the classifier values here!
 ALGORITHMS = ['forest', 'knn', 'bayes', 'neural'] #algorithms to use
@@ -34,13 +37,14 @@ knn_n_neighbors = 5 # default: 5
 nb_priors = None # default: None
 mlp_layers = (100) # default: (100,)
 
+# filter warnings of the type UndefinedMetricWarning
+warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 
 def main():
-    # filter warnings of the type UndefinedMetricWarning
-    warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
     readDataset()
     handleMissingValues()
-    trainAndPredict()
+    classifiers = getClassifiers()
+    trainAndPredict(classifiers)
 
 
 def readDataset():
@@ -68,14 +72,34 @@ def handleMissingValues():
         printlog('dataset size after handling missing values:' + str(DATAFRAME.shape))
 
 
-def trainAndPredict():
-    # split into 80% training data, 20% test data
-    train, test = train_test_split(DATAFRAME, test_size=SPLIT_DATA)
+def trainAndPredict(classifiers):
+    resultsPerClassifier = {}
+    for (model, name) in classifiers:
+        resultsPerClassifier[name] = []
+    for i in range (0, NUMBER_OF_RUNS):
+        # split into 80% training data, 20% test data
+        train, test = train_test_split(DATAFRAME, test_size=SPLIT_DATA)
 
-    # get training & test samples/targets
-    training_samples, training_target = getSamplesAndTargets(train)
-    test_samples,     actual_leagues  = getSamplesAndTargets(test)
+        # get training & test samples/targets
+        training_samples, training_target = getSamplesAndTargets(train)
+        test_samples,     actual_leagues  = getSamplesAndTargets(test)
 
+        for (model, name) in classifiers:
+            # for each classifier, do the training and evaluation
+            model.fit(training_samples, training_target)
+
+            # predict the samples
+            predicted_leagues = model.predict(test_samples)
+
+            # summarize the fit of the model
+            printResults(actual_leagues, predicted_leagues, name)
+            resultsPerClassifier[name].append(
+                metrics.precision_recall_fscore_support(actual_leagues, predicted_leagues, average='weighted'))
+
+    printClassifierReport(resultsPerClassifier)
+
+
+def getClassifiers():
     # add the various classifiers
     classifiers = []
     if "forest" in ALGORITHMS:
@@ -94,17 +118,7 @@ def trainAndPredict():
         name = "Neural Network (layers={0})".format(mlp_layers)
         classifiers.append(
             (MLPClassifier(hidden_layer_sizes=mlp_layers), name))
-
-    for (model, name) in classifiers:
-        # for each classifier, do the training and evaluation
-        model.fit(training_samples, training_target)
-
-        # predict the samples
-        predicted_leagues = model.predict(test_samples)
-
-        # summarize the fit of the model
-        printResults(actual_leagues, predicted_leagues, name)
-
+    return classifiers
 
 def getSamplesAndTargets(data):
     # get training samples (without LeagueIndex and GameID
@@ -134,6 +148,24 @@ def printResults(actual_leagues, predicted_leagues, classifier):
     print("recall-score:    %0.2f" % metrics.recall_score(actual_leagues, predicted_leagues, average='weighted'))
     print("precision-score: %0.2f" % metrics.precision_score(actual_leagues, predicted_leagues, average='weighted'))
     print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
+
+
+def printClassifierReport(resultsPerClassifier):
+    print()
+    print("=" * 80)
+    print("=== Report per Classifier: ===")
+    printlog(resultsPerClassifier)
+    for name, results in resultsPerClassifier.items():
+        print("=== %s ===" % name)
+        # determine the best / worst result based on f1-score
+        bestRow  = reduce((lambda x, y: x if x[2] > y[2] else y), results)[:-1]
+        print("best (P, R, F):    ", RESULT_FORMAT.format(*bestRow))
+        worstRow = reduce((lambda x, y: x if x[2] < y[2] else y), results)[:-1]
+        print("worst (P, R, F):   ", RESULT_FORMAT.format(*worstRow))
+        # calculate the average result.
+        summedRows = results[0][:-1] if len(results) == 1 else reduce((lambda x, y: (x[0] + y[0], x[1] + y[1], x[2] + y[2])), results)
+        averageRow = list(map((lambda x: x / NUMBER_OF_RUNS), summedRows))
+        print("average (P, R, F): ", RESULT_FORMAT.format(*averageRow))
 
 
 def printlog(message):
