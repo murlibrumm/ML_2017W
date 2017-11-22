@@ -121,10 +121,12 @@ def getClassifiers():
     return classifiers
 
 def getSamplesAndTargets(data):
-    # get training samples (without LeagueIndex and GameID
-    samples = data.drop(['GameID', 'LeagueIndex'], axis=1)
-    # Test: only select some of the most significant columns
-    # samples = data[['NumberOfPACs','ActionLatency','SelectByHotkeys','AssignToHotkeys', 'APM']]
+    if (SIGNIFICANT_COLS):
+        # select only some of the most significant columns
+        samples = data[['NumberOfPACs','ActionLatency','SelectByHotkeys','AssignToHotkeys', 'APM']]
+    else:
+        # get training samples (without LeagueIndex and GameID
+        samples = data.drop(['GameID', 'LeagueIndex'], axis=1)
 
     # get training target (LeagueIndex)
     targets  = data['LeagueIndex'].values
@@ -144,10 +146,10 @@ def printResults(actual_leagues, predicted_leagues, classifier):
           metrics.confusion_matrix(actual_leagues, predicted_leagues))
     print()
     # here we can use 'weighted' or 'macro' => weighted adjusts for the number of instances per label
-    print("f1-score:        %0.2f" % metrics.f1_score(actual_leagues, predicted_leagues, average='weighted'))
-    print("recall-score:    %0.2f" % metrics.recall_score(actual_leagues, predicted_leagues, average='weighted'))
-    print("precision-score: %0.2f" % metrics.precision_score(actual_leagues, predicted_leagues, average='weighted'))
-    print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
+    # print("f1-score:        %0.2f" % metrics.f1_score(actual_leagues, predicted_leagues, average='weighted'))
+    # print("recall-score:    %0.2f" % metrics.recall_score(actual_leagues, predicted_leagues, average='weighted'))
+    # print("precision-score: %0.2f" % metrics.precision_score(actual_leagues, predicted_leagues, average='weighted'))
+    # print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
 
 
 def printClassifierReport(resultsPerClassifier):
