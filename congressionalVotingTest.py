@@ -5,13 +5,15 @@ from sklearn import svm
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.externals import joblib
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.svm import LinearSVC
+from sklearn.neural_network import MLPClassifier
+from sklearn.naive_bayes import GaussianNB
+
 from sklearn import tree
 import graphviz
 from sklearn import metrics
 from sklearn.model_selection import train_test_split
 from sklearn.model_selection import cross_val_score, cross_val_predict
-from sklearn.naive_bayes import GaussianNB
+
 
 import numpy as np
 import pandas as pd
@@ -83,7 +85,7 @@ def convertCSV(filename,trainingsFile):
 X, y = convertCSV("./datasets/CongressionalVotingID.shuf.train.csv", True)
 
 # split data into test/training
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.01)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0)
 
 # define trainings algorithm
 # clf = RandomForestClassifier(n_estimators=10)
@@ -91,6 +93,8 @@ X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.01)
 clf = GaussianNB()
 # clf = LinearSVC(random_state=0)
 # clf = tree.DecisionTreeClassifier()
+clf = MLPClassifier(solver='lbfgs', alpha=1e-5,
+                 hidden_layer_sizes=(5, 2), random_state=1)
 
 scores = cross_val_score(clf, X, y, cv=10)
 print("Accuracy: %0.2f (+/- %0.2f)" % (scores.mean(), scores.std() * 2))
@@ -105,8 +109,9 @@ print(clf.fit(X_train, y_train))
 # read in the provided test data
 X_provided_test, y_provided_test = convertCSV("./datasets/CongressionalVotingID.shuf.test.csv", False)
 
+
 # prediction of the test data
-y_pred = clf.predict(X_test)
+# y_pred = clf.predict(X_test)
 
 # prediction of the provided test data
 y_provided_test = clf.predict(X_provided_test)
@@ -114,11 +119,13 @@ y_provided_pred_trans = classEnc.inverse_transform(y_provided_test)
 prediction = np.c_[testdata_id, y_provided_pred_trans]
 np.savetxt("prediction.csv", prediction, delimiter=",", fmt='%s', header='ID,"class"', comments='')
 
+'''
 # evaluate the model
 # summarize the fit of the model
 print("evaluation:")
 print(metrics.classification_report(y_test, y_pred))
 print("confusion matirx:\n" + str(metrics.confusion_matrix(y_test, y_pred)))
+'''
 
 ''' store a model
 joblib.dump(clf, "save.pkl")
