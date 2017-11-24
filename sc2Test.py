@@ -7,7 +7,7 @@ from sklearn.exceptions import UndefinedMetricWarning
 from sklearn import metrics
 from sklearn import preprocessing
 import sys
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 import numpy as np
 import warnings
 from functools import reduce
@@ -91,8 +91,12 @@ def trainAndPredict(classifiers):
             # predict the samples
             predicted_leagues = model.predict(test_samples)
 
+            # perform cross validation
+            X, y = getSamplesAndTargets(DATAFRAME)
+            cross_scores = cross_val_score(model, X, y, cv=10)
+
             # summarize the fit of the model
-            printResults(actual_leagues, predicted_leagues, name)
+            printResults(cross_scores, actual_leagues, predicted_leagues, name)
             resultsPerClassifier[name].append(
                 metrics.precision_recall_fscore_support(actual_leagues, predicted_leagues, average='weighted'))
 
@@ -133,7 +137,7 @@ def getSamplesAndTargets(data):
     return samples, targets
 
 
-def printResults(actual_leagues, predicted_leagues, classifier):
+def printResults(cross_score, actual_leagues, predicted_leagues, classifier):
     print("\n", "=" * 80, "\n")
     print("=== Classifier:", classifier, "===\n")
     print("=== Classification Report: ===\n"
@@ -141,6 +145,8 @@ def printResults(actual_leagues, predicted_leagues, classifier):
           "recall (How many relevant elements are selected?): TP / (TP + FN)\n"
           "f1 score to measure a test's accuracy (considers both precision and recall): 2*((PR * RC)/(PR + RC))\n"
           "support: #elements in this class\n", metrics.classification_report(actual_leagues, predicted_leagues))
+    print("=== Cross Validation Results: ===\n"
+          "Accuracy: %0.2f (+/- %0.2f)" % (cross_score.mean(), cross_score.std() * 2))
     print("=== Confusion Matrix: ===\n"
           "top: predicted values, left: actual values\n",
           metrics.confusion_matrix(actual_leagues, predicted_leagues))
