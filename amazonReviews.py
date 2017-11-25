@@ -12,7 +12,6 @@ import numpy as np
 import warnings
 from functools import reduce
 
-
 # TODO:
 # 1) different ways to treat missing values
 # 2) test with less columns (relevant ones)
@@ -25,23 +24,22 @@ from functools import reduce
 LOGGING          = False    # verbose logging output
 SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
-MISSING_VALUES   = 'most_frequent' # how to deal with missing values (delete, mean, median, most_frequent)
+MISSING_VALUES   = 'mean' # how to deal with missing values (delete, mean, median, most_frequent)
 SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
-NUMBER_OF_RUNS   = 5
+NUMBER_OF_RUNS   = 1
 RESULT_FORMAT    = '({:0.2f}, {:0.2f}, {:0.2f})'
-LABEL_ENC = preprocessing.LabelEncoder()
-LABEL_ENC.fit(['n','y','unknown'])
+CROSS_VALIDATION = False
 
 CLASS_ENC = preprocessing.LabelEncoder()
-CLASS_ENC.fit(['democrat','republican'])
+SCALER = None
 
 # change the classifier values here!
-ALGORITHMS = ['forest', 'knn', 'bayes', 'neural'] #algorithms to use
-rf_n_estimators = 10 # default: 10
-knn_n_neighbors = 5 # default: 5
+ALGORITHMS = ['forest', 'neural'] #algorithms to use
+rf_n_estimators = 500 # default: 10
+knn_n_neighbors = 7 # default: 5
 nb_priors = None # default: None
-mlp_layers = (5,2) # default: (100,)
-mlp_solver = 'lbfgs' # solver lbfgs is good for small datasets
+mlp_layers = (5000,500) # default: (100,)
+mlp_solver = 'adam'
 
 # filter warnings of the type UndefinedMetricWarning
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
@@ -49,7 +47,6 @@ warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 def main():
     readDataset()
     encodeDataset()
-    handleMissingValues()
     classifiers = getClassifiers()
     trainAndPredict(classifiers)
 
@@ -57,7 +54,7 @@ def main():
 def readDataset():
     global DATAFRAME
     # csv => DataFrame
-    DATAFRAME = pd.read_csv('datasets/CongressionalVotingID.shuf.train.csv')
+    DATAFRAME = pd.read_csv('datasets/amazonReviews.800.train.csv')
 
     printlog('dataset size:' + str(DATAFRAME.shape))
     print(DATAFRAME)
@@ -66,29 +63,29 @@ def encodeDataset():
     global DATAFRAME
     DATAFRAME = DATAFRAME.apply(lambda x: encodeLabels(x))
 
-def handleMissingValues():
-    global DATAFRAME
+# call this method first with the trainingsdata
+def prepareDataSet(data):
+    global SCALER
 
-    unknownVal = LABEL_ENC.transform(['unknown']).item(0)
-    featureVal = DATAFRAME.drop(columns=['class'])
+    featureVal = data.drop(columns=['Class'])
 
-    if (MISSING_VALUES == 'delete'):
-        # filter out missing values
-        # https://stackoverflow.com/questions/27428954/drop-row-if-any-column-value-does-not-a-obey-a-condition-in-pandas
-        featureVal = featureVal[~(featureVal == unknownVal).any(1)]
+    preprocessing.StandardScaler().fit(featureVal)
 
-    if (MISSING_VALUES == 'median' or MISSING_VALUES == 'mean' or MISSING_VALUES == 'most_frequent'):
-        # deal with missing values => mean
-        imp = preprocessing.Imputer(missing_values=unknownVal, strategy=MISSING_VALUES, axis=0)
-        imputed_DF = pd.DataFrame(imp.fit_transform(featureVal))
-        imputed_DF.columns = featureVal.columns
-        imputed_DF.index = featureVal.index
-        featureVal = imputed_DF
-        printlog('dataset size after handling missing values:' + str(featureVal.shape))
+    if SCALER is None:
+        SCALER = preprocessing.StandardScaler().fit(featureVal)
+    scaled_DF = pd.DataFrame(SCALER.transform(featureVal))
+    scaled_DF.columns = featureVal.columns
+    scaled_DF.index = featureVal.index
+    featureVal = scaled_DF
 
-    DATAFRAME = DATAFRAME.loc[:, 'class':'class'].join(featureVal)
+    norm_DF = pd.DataFrame(preprocessing.normalize(featureVal, norm='l2'))
+    norm_DF.columns = featureVal.columns
+    norm_DF.index = featureVal.index
+    featureVal = norm_DF
 
-    print(DATAFRAME)
+    data = data.loc[:, 'Class':'Class'].join(featureVal)
+
+    return data
 
 def trainAndPredict(classifiers):
     resultsPerClassifier = {}
@@ -96,13 +93,22 @@ def trainAndPredict(classifiers):
         resultsPerClassifier[name] = []
 
     # perform cross validation
-    X, y = getSamplesAndTargets(DATAFRAME)
-    cross_scores = cross_val_score(model, X, y, cv=10)
-    cross_y_pred = cross_val_predict(model, X, y, cv=10)
+    if CROSS_VALIDATION:
+        X, y = getSamplesAndTargets(DATAFRAME)
+        cross_scores = cross_val_score(model, X, y, cv=10)
+        cross_y_pred = cross_val_predict(model, X, y, cv=10)
+    else:
+        y = None
+        cross_scores = None
+        cross_y_pred = None
 
     for i in range (0, NUMBER_OF_RUNS):
         # split into 80% training data, 20% test data
         train, test = train_test_split(DATAFRAME, test_size=SPLIT_DATA)
+
+        # prepare training and test data separately since the scaling should not be affected by the test data
+        train = prepareDataSet(train)
+        test = prepareDataSet(test)
 
         # get training & test samples/targets
         training_samples, training_target = getSamplesAndTargets(train)
@@ -123,12 +129,13 @@ def trainAndPredict(classifiers):
     printClassifierReport(resultsPerClassifier)
 
 def encodeLabels(column):
-    if column.name == 'class':
+    if column.name == 'Class':
+        CLASS_ENC.fit(column)
         return CLASS_ENC.transform(column)
-    elif column.name == 'ID':
-        return column
+    # elif column.name == 'ID':
+    #    return column
     else:
-        return LABEL_ENC.transform(column)
+        return column
 
 def getClassifiers():
     # add the various classifiers
@@ -153,10 +160,10 @@ def getClassifiers():
 
 def getSamplesAndTargets(data):
     # get training samples (without class and ID)
-    samples = data.drop(['ID', 'class'], axis=1)
+    samples = data.drop(['ID', 'Class'], axis=1)
 
     # get training target (class)
-    targets  = data['class'].values
+    targets  = data['Class'].values
     return samples, targets
 
 
@@ -168,10 +175,11 @@ def printResults(cross_actual_class, cross_score, cross_pred_class, actual_class
           "recall (How many relevant elements are selected?): TP / (TP + FN)\n"
           "f1 score to measure a test's accuracy (considers both precision and recall): 2*((PR * RC)/(PR + RC))\n"
           "support: #elements in this class\n", metrics.classification_report(actual_class, predicted_class))
-    print("=== Cross Validation Results: ===\n"
-          "Accuracy: %0.2f (+/- %0.2f)" % (cross_score.mean(), cross_score.std() * 2), "\n"
-          "Confusion matrix:\n",
-          metrics.confusion_matrix(cross_actual_class, cross_pred_class))
+    if CROSS_VALIDATION:
+        print("=== Cross Validation Results: ===\n"
+              "Accuracy: %0.2f (+/- %0.2f)" % (cross_score.mean(), cross_score.std() * 2), "\n"
+              "Confusion matrix:\n",
+              metrics.confusion_matrix(cross_actual_class, cross_pred_class))
     print("=== Confusion Matrix: ===\n"
           "top: predicted values, left: actual values\n",
           metrics.confusion_matrix(actual_class, predicted_class))
