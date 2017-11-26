@@ -10,8 +10,9 @@ if len(argv) > 1:
         if arg in "save" and arg[0] == "s":
             save = True
 
-knn = False
-rf = True
+knn = True
+rf = False
+mlp = False
 
 
 # for knn
@@ -27,8 +28,14 @@ if rf:
     y_recall = [0.79, 0.81, 0.81, 0.82, 0.82, 0.81]
     y_f1 = [0.77, 0.78, 0.79, 0.79, 0.79, 0.78]
 
+if mlp:
+    x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    y_precision = [0.78, 0.8, 0.8, 0.8, 0.79, 0.79, 0.79, 0.79, 0.79, 0.8]
+    y_recall = [0.81, 0.82, 0.8, 0.8, 0.8, 0.79, 0.79, 0.8, 0.8, 0.8]
+    y_f1 = [0.79, 0.81, 0.8, 0.8, 0.79, 0.79, 0.79, 0.79, 0.79, 0.8]
 
-pyplot.plot(x, y_precision, "r", x, y_recall, "g", x, y_f1, "b")
+
+pyplot.plot(x, y_precision, "r--", x, y_recall, "g-.", x, y_f1, "b")
 
 if save:
     pyplot.savefig("figure.png")
