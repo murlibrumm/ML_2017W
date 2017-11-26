@@ -30,14 +30,14 @@ SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
 MISSING_VALUES   = 'delete' # how to deal with missing values (delete, mean, median, most_frequent)
 SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
-NUMBER_OF_RUNS   = 1
+NUMBER_OF_RUNS   = 10
 EXPORT_PLOT      = False
 X_LABEL          = 'hidden layer sizes'
 PLOT_FILE_NAME   = 'figures/neural_network_2.png'
 
 # change the classifier values here!
-ALGORITHMS = ['neural'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
-algorithmParameter = (5, 100+1, 5) # set a parameter in range(start, end, jump)
+ALGORITHMS = ['bayes'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
+algorithmParameter = (5, 5+1, 5) # set a parameter in range(start, end, jump)
 
 # forest params (algorithmParameter controls n_estimators)
 forestCriterion = 'gini' # "gini" (default) for the Gini impurity 2) "entropy" for the information gain.

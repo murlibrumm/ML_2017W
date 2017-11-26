@@ -11,14 +11,18 @@ from sklearn.model_selection import train_test_split, cross_val_score, cross_val
 import numpy as np
 import warnings
 from functools import reduce
+import matplotlib.pyplot as plt
+from collections import OrderedDict
 
-# TODO:
-# 1) different ways to treat missing values
-# 2) test with less columns (relevant ones)
-# 3) different models (kNN, RF, Bayesian Networks, NN) => georg's models
-# 4) different params
-# maybe print the model & the missing value strategy at the end?
-# maybe do the whole process X times => report on best/worst/avg results?
+
+class LastUpdatedOrderedDict(OrderedDict):
+    "Store items in the order the keys were last added."
+
+    def __setitem__(self, key, value):
+        if key in self:
+            del self[key]
+        OrderedDict.__setitem__(self, key, value)
+
 
 # GLOBALS
 LOGGING          = False    # verbose logging output
@@ -29,17 +33,32 @@ SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys
 NUMBER_OF_RUNS   = 1
 RESULT_FORMAT    = '({:0.2f}, {:0.2f}, {:0.2f})'
 CROSS_VALIDATION = False
+EXPORT_PLOT      = True
+X_LABEL          = 'number of hidden layers'
+PLOT_FILE_NAME   = 'figures/amazon_mlp_tanh.png'
 
 CLASS_ENC = preprocessing.LabelEncoder()
 SCALER = None
 
 # change the classifier values here!
-ALGORITHMS = ['forest', 'neural'] #algorithms to use
-rf_n_estimators = 500 # default: 10
-knn_n_neighbors = 7 # default: 5
-nb_priors = None # default: None
-mlp_layers = (5000,500) # default: (100,)
-mlp_solver = 'adam'
+ALGORITHMS = ['neural'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
+algorithmParameter = (5, 100+1, 10) # set a parameter in range(start, end, jump)
+
+# forest params (algorithmParameter controls n_estimators)
+forestCriterion = 'gini' # "gini" (default) for the Gini impurity 2) "entropy" for the information gain.
+forestMaxDepth  = None      # how deep can a tree be max; default: none
+
+# knn params (algorithmParameter control n_neighbors)
+knnWeights   = 'distance'   # weights: 1) 'uniform' (default): weighted equally. 2) 'distance': closer neighbors => more influence
+knnAlgorithm = 'auto'      # algorithm to compute the NN: {'ball_tree', 'kd_tree', 'brute', 'auto}
+
+# bayes params TODO
+
+# neural MLP params (algorithmParameter controls hidden_layer_sizes, default: (100,))
+neuralActivation = 'tanh' # (activation function for the hidden layer) : {‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default ‘relu’
+neuralSolver = 'adam' # (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
+neuralLearningRate = 'constant'# (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
+neuralMaxIter = 200 # max_iter : int, optional, default 200
 
 # filter warnings of the type UndefinedMetricWarning
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
@@ -88,7 +107,7 @@ def prepareDataSet(data):
     return data
 
 def trainAndPredict(classifiers):
-    resultsPerClassifier = {}
+    resultsPerClassifier = LastUpdatedOrderedDict()
     for (model, name) in classifiers:
         resultsPerClassifier[name] = []
 
@@ -127,6 +146,8 @@ def trainAndPredict(classifiers):
                 metrics.precision_recall_fscore_support(actual_class, predicted_class, average='weighted'))
 
     printClassifierReport(resultsPerClassifier)
+    if EXPORT_PLOT:
+        printPlot(resultsPerClassifier)
 
 def encodeLabels(column):
     if column.name == 'Class':
@@ -140,22 +161,36 @@ def encodeLabels(column):
 def getClassifiers():
     # add the various classifiers
     classifiers = []
-    if "forest" in ALGORITHMS:
-        name = "Random Forests (n={0})".format(rf_n_estimators)
-        classifiers.append(
-            (RandomForestClassifier(n_estimators=rf_n_estimators, criterion='entropy', max_depth=100), name))
-    if "knn" in ALGORITHMS:
-        name = "kNN (n={0})".format(knn_n_neighbors)
-        classifiers.append(
-            (KNeighborsClassifier(n_neighbors=knn_n_neighbors), name))
-    if "bayes" in ALGORITHMS:
-        name = "Naive Bayes (priors={0})".format(nb_priors)
-        classifiers.append(
-            (GaussianNB(priors=nb_priors), name))
-    if "neural" in ALGORITHMS:
-        name = "Neural Network (layers={0})".format(mlp_layers)
-        classifiers.append(
-            (MLPClassifier(solver=mlp_solver, hidden_layer_sizes=mlp_layers), name))
+    for i in range(*algorithmParameter):
+        if "forest" in ALGORITHMS:
+            name = "Random Forests (n={0})".format(i)
+            classifiers.append(
+                # n_estimators: number of trees in the forest, default: 10
+                # criterion: 1) "gini" (default) for the Gini impurity 2) "entropy" for the information gain.
+                # max_depth: how deep can a tree be max; default: none
+                (RandomForestClassifier(n_estimators=i, criterion=forestCriterion, max_depth=forestMaxDepth), name))
+        if "knn" in ALGORITHMS:
+            name = "kNN (n={0})".format(i)
+            classifiers.append(
+                # n_neighbors: number of neighbours to use, default: 5
+                # weights: 1) 'uniform' (default): weighted equally. 2) 'distance': closer neighbors => more influence
+                # algorithm to compute the NN: 1) 'ball_tree' will use BallTree 2) 'kd_tree' will use KDTree
+                (KNeighborsClassifier(n_neighbors=i, weights=knnWeights, algorithm=knnAlgorithm), name))
+        if "bayes" in ALGORITHMS:
+            name = "Naive Bayes (priors={0})".format('None')
+            classifiers.append(
+                # priors: prior probabilities of the classes; default: 'none'
+                (GaussianNB(priors=None), name))
+        if "neural" in ALGORITHMS:
+            name = "Neural Network (layers={0})".format(i)
+            classifiers.append(
+                # hidden_layer_sizes (ith element = number of neurons in the ith hidden layer), default: (100,)
+                # activation (activation function for the hidden layer) : {‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default ‘relu’
+                # solver (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
+                # learning_rate (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
+                # max_iter : int, optional, default 200
+                (MLPClassifier(hidden_layer_sizes=(i, ), activation=neuralActivation, solver=neuralSolver,
+                               learning_rate=neuralLearningRate, max_iter=neuralMaxIter), name))
     return classifiers
 
 def getSamplesAndTargets(data):
@@ -207,6 +242,28 @@ def printClassifierReport(resultsPerClassifier):
         summedRows = results[0][:-1] if len(results) == 1 else reduce((lambda x, y: (x[0] + y[0], x[1] + y[1], x[2] + y[2])), results)
         averageRow = list(map((lambda x: x / NUMBER_OF_RUNS), summedRows))
         print("average (P, R, F): ", RESULT_FORMAT.format(*averageRow))
+
+
+def printPlot(resultsPerClassifier):
+    precision = [results[0][0] for name, results in resultsPerClassifier.items()]
+    recall    = [results[0][1] for name, results in resultsPerClassifier.items()]
+    f1Score   = [results[0][2] for name, results in resultsPerClassifier.items()]
+    xAxis = list(range(*algorithmParameter))
+    printlog(list(range(*algorithmParameter)))
+    printlog(precision)
+    printlog(recall)
+    printlog(f1Score)
+
+    fig = plt.figure(figsize=(8, 8))
+    precisionLine, = plt.plot(xAxis, precision, label='Precision')
+    recallLine,    = plt.plot(xAxis, recall,    label='Recall')
+    f1ScoreLine,   = plt.plot(xAxis, f1Score,   label='F1 Score')
+    plt.legend(handles=[precisionLine, recallLine, f1ScoreLine])
+    plt.ylabel('performance')
+    plt.xlabel(X_LABEL)
+    #plt.show()
+    plt.savefig(PLOT_FILE_NAME)
+    plt.close(fig)
 
 
 def printlog(message):
