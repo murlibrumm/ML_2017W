@@ -11,6 +11,17 @@ from sklearn.model_selection import train_test_split, cross_val_score
 import numpy as np
 import warnings
 from functools import reduce
+import matplotlib.pyplot as plt
+from collections import OrderedDict
+
+
+class LastUpdatedOrderedDict(OrderedDict):
+    "Store items in the order the keys were last added."
+
+    def __setitem__(self, key, value):
+        if key in self:
+            del self[key]
+        OrderedDict.__setitem__(self, key, value)
 
 
 # TODO:
@@ -27,15 +38,12 @@ SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
 MISSING_VALUES   = 'delete' # how to deal with missing values (delete, mean, median, most_frequent)
 SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
-NUMBER_OF_RUNS   = 5
-RESULT_FORMAT    = '({:0.2f}, {:0.2f}, {:0.2f})'
+NUMBER_OF_RUNS   = 1
+EXPORT_PLOT      = True
 
 # change the classifier values here!
-ALGORITHMS = ['forest', 'knn', 'bayes', 'neural'] #algorithms to use
-rf_n_estimators = 10 # default: 10
-knn_n_neighbors = 5 # default: 5
-nb_priors = None # default: None
-mlp_layers = (100) # default: (100,)
+ALGORITHMS = ['knn'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
+algorithmParameter = (1, 100, 5) # set a parameter in range(start, end, jump)
 
 # filter warnings of the type UndefinedMetricWarning
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
@@ -73,7 +81,7 @@ def handleMissingValues():
 
 
 def trainAndPredict(classifiers):
-    resultsPerClassifier = {}
+    resultsPerClassifier = LastUpdatedOrderedDict()
     for (model, name) in classifiers:
         resultsPerClassifier[name] = []
     for i in range (0, NUMBER_OF_RUNS):
@@ -93,35 +101,53 @@ def trainAndPredict(classifiers):
 
             # perform cross validation
             X, y = getSamplesAndTargets(DATAFRAME)
-            cross_scores = cross_val_score(model, X, y, cv=10)
+            crossScoresPrecision = cross_val_score(model, X, y, cv=10, scoring='recall_weighted') #std = accuracy
+            crossScoresRecall    = cross_val_score(model, X, y, cv=10, scoring='precision_weighted') #std = accuracy
+            crossScoresF1        = cross_val_score(model, X, y, cv=10, scoring='f1_weighted') #std = accuracy
 
             # summarize the fit of the model
-            printResults(cross_scores, actual_leagues, predicted_leagues, name)
+            printResults(crossScoresF1, actual_leagues, predicted_leagues, name)
             resultsPerClassifier[name].append(
-                metrics.precision_recall_fscore_support(actual_leagues, predicted_leagues, average='weighted'))
+                (crossScoresPrecision.mean(), crossScoresRecall.mean(), crossScoresF1.mean(), 0))
+                #(metrics.precision_recall_fscore_support(actual_leagues, predicted_leagues, average='weighted'))
 
     printClassifierReport(resultsPerClassifier)
+    if EXPORT_PLOT:
+        printPlot(resultsPerClassifier)
 
 
 def getClassifiers():
     # add the various classifiers
     classifiers = []
-    if "forest" in ALGORITHMS:
-        name = "Random Forests (n={0})".format(rf_n_estimators)
-        classifiers.append(
-            (RandomForestClassifier(n_estimators=rf_n_estimators, criterion='entropy', max_depth=100), name))
-    if "knn" in ALGORITHMS:
-        name = "kNN (n={0})".format(knn_n_neighbors)
-        classifiers.append(
-            (KNeighborsClassifier(n_neighbors=knn_n_neighbors), name))
-    if "bayes" in ALGORITHMS:
-        name = "Naive Bayes (priors={0})".format(nb_priors)
-        classifiers.append(
-            (GaussianNB(priors=nb_priors), name))
-    if "neural" in ALGORITHMS:
-        name = "Neural Network (layers={0})".format(mlp_layers)
-        classifiers.append(
-            (MLPClassifier(hidden_layer_sizes=mlp_layers), name))
+    for i in range(*algorithmParameter):
+        if "forest" in ALGORITHMS:
+            name = "Random Forests (n={0})".format(i)
+            classifiers.append(
+                # n_estimators: number of trees in the forest, default: 10
+                # criterion: 1) "gini" (default) for the Gini impurity 2) "entropy" for the information gain.
+                # max_depth: how deep can a tree be max; default: none
+                (RandomForestClassifier(n_estimators=i, criterion='entropy', max_depth=100), name))
+        if "knn" in ALGORITHMS:
+            name = "kNN (n={0})".format(i)
+            classifiers.append(
+                # n_neighbors: number of neighbours to use, default: 5
+                # weights: 1) 'uniform' (default): weighted equally. 2) 'distance': closer neighbors => more influence
+                # algorithm to compute the NN: 1) 'ball_tree' will use BallTree 2) 'kd_tree' will use KDTree
+                (KNeighborsClassifier(n_neighbors=i), name))
+        if "bayes" in ALGORITHMS:
+            name = "Naive Bayes (priors={0})".format(i)
+            classifiers.append(
+                # priors: prior probabilities of the classes; default: 'none'
+                (GaussianNB(priors=i), name))
+        if "neural" in ALGORITHMS:
+            name = "Neural Network (layers={0})".format(i)
+            classifiers.append(
+                # hidden_layer_sizes (ith element = number of neurons in the ith hidden layer), default: (100,)
+                # activation (activation function for the hidden layer) : {‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default ‘relu’
+                # solver (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
+                # learning_rate (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
+                # max_iter : int, optional, default 200
+                (MLPClassifier(hidden_layer_sizes=i), name))
     return classifiers
 
 def getSamplesAndTargets(data):
@@ -155,7 +181,7 @@ def printResults(cross_score, actual_leagues, predicted_leagues, classifier):
     # print("f1-score:        %0.2f" % metrics.f1_score(actual_leagues, predicted_leagues, average='weighted'))
     # print("recall-score:    %0.2f" % metrics.recall_score(actual_leagues, predicted_leagues, average='weighted'))
     # print("precision-score: %0.2f" % metrics.precision_score(actual_leagues, predicted_leagues, average='weighted'))
-    # print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
+    print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
 
 
 def printClassifierReport(resultsPerClassifier):
@@ -163,17 +189,40 @@ def printClassifierReport(resultsPerClassifier):
     print("=" * 80)
     print("=== Report per Classifier: ===")
     printlog(resultsPerClassifier)
+    resultFormat = '({:0.2f}, {:0.2f}, {:0.2f})'
     for name, results in resultsPerClassifier.items():
         print("=== %s ===" % name)
         # determine the best / worst result based on f1-score
         bestRow  = reduce((lambda x, y: x if x[2] > y[2] else y), results)[:-1]
-        print("best (P, R, F):    ", RESULT_FORMAT.format(*bestRow))
+        print("best (P, R, F):    ", resultFormat.format(*bestRow))
         worstRow = reduce((lambda x, y: x if x[2] < y[2] else y), results)[:-1]
-        print("worst (P, R, F):   ", RESULT_FORMAT.format(*worstRow))
+        print("worst (P, R, F):   ", resultFormat.format(*worstRow))
         # calculate the average result.
         summedRows = results[0][:-1] if len(results) == 1 else reduce((lambda x, y: (x[0] + y[0], x[1] + y[1], x[2] + y[2])), results)
         averageRow = list(map((lambda x: x / NUMBER_OF_RUNS), summedRows))
-        print("average (P, R, F): ", RESULT_FORMAT.format(*averageRow))
+        print("average (P, R, F): ", resultFormat.format(*averageRow))
+
+
+def printPlot(resultsPerClassifier):
+    precision = [results[0][0] for name, results in resultsPerClassifier.items()]
+    recall    = [results[0][1] for name, results in resultsPerClassifier.items()]
+    f1Score   = [results[0][2] for name, results in resultsPerClassifier.items()]
+    xAxis = list(range(*algorithmParameter))
+    printlog(list(range(*algorithmParameter)))
+    printlog(precision)
+    printlog(recall)
+    printlog(f1Score)
+
+    fig = plt.figure(figsize=(8, 8))
+    precisionLine, = plt.plot(xAxis, precision, label='Precision')
+    recallLine,    = plt.plot(xAxis, recall,    label='Recall')
+    f1ScoreLine,   = plt.plot(xAxis, f1Score,   label='F1 Score')
+    plt.legend(handles=[precisionLine, recallLine, f1ScoreLine])
+    plt.ylabel('performance')
+    plt.xlabel('neighbors used')
+    #plt.show()
+    plt.savefig('figures/knn2.png')
+    plt.close(fig)
 
 
 def printlog(message):
