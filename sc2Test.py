@@ -24,26 +24,36 @@ class LastUpdatedOrderedDict(OrderedDict):
         OrderedDict.__setitem__(self, key, value)
 
 
-# TODO:
-# 1) different ways to treat missing values
-# 2) test with less columns (relevant ones)
-# 3) different models (kNN, RF, Bayesian Networks, NN) => georg's models
-# 4) different params
-# maybe print the model & the missing value strategy at the end?
-# maybe do the whole process X times => report on best/worst/avg results?
-
 # GLOBALS
-LOGGING          = False    # verbose logging output
+LOGGING          = True    # verbose logging output
 SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
 MISSING_VALUES   = 'delete' # how to deal with missing values (delete, mean, median, most_frequent)
 SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
 NUMBER_OF_RUNS   = 1
-EXPORT_PLOT      = True
+EXPORT_PLOT      = False
+X_LABEL          = 'hidden layer sizes'
+PLOT_FILE_NAME   = 'figures/neural_network_2.png'
 
 # change the classifier values here!
-ALGORITHMS = ['knn'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
-algorithmParameter = (1, 100, 5) # set a parameter in range(start, end, jump)
+ALGORITHMS = ['neural'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
+algorithmParameter = (5, 100+1, 5) # set a parameter in range(start, end, jump)
+
+# forest params (algorithmParameter controls n_estimators)
+forestCriterion = 'gini' # "gini" (default) for the Gini impurity 2) "entropy" for the information gain.
+forestMaxDepth  = None      # how deep can a tree be max; default: none
+
+# knn params (algorithmParameter control n_neighbors)
+knnWeights   = 'uniform'   # weights: 1) 'uniform' (default): weighted equally. 2) 'distance': closer neighbors => more influence
+knnAlgorithm = 'brute'      # algorithm to compute the NN: {'ball_tree', 'kd_tree', 'brute', 'auto}
+
+# bayes params TODO
+
+# neural MLP params (algorithmParameter controls hidden_layer_sizes, default: (100,))
+neuralActivation = 'relu' # (activation function for the hidden layer) : {‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default ‘relu’
+neuralSolver = 'adam' # (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
+neuralLearningRate = 'constant'# (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
+neuralMaxIter = 200 # max_iter : int, optional, default 200
 
 # filter warnings of the type UndefinedMetricWarning
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
@@ -101,14 +111,17 @@ def trainAndPredict(classifiers):
 
             # perform cross validation
             X, y = getSamplesAndTargets(DATAFRAME)
-            crossScoresPrecision = cross_val_score(model, X, y, cv=10, scoring='recall_weighted') #std = accuracy
-            crossScoresRecall    = cross_val_score(model, X, y, cv=10, scoring='precision_weighted') #std = accuracy
-            crossScoresF1        = cross_val_score(model, X, y, cv=10, scoring='f1_weighted') #std = accuracy
+            crossScoresPrecision = cross_val_score(model, X, y, cv=10, scoring='recall_weighted')
+            crossScoresRecall    = cross_val_score(model, X, y, cv=10, scoring='precision_weighted')
+            crossScoresF1        = cross_val_score(model, X, y, cv=10, scoring='f1_weighted')
+            crossScoresAccuracy  = cross_val_score(model, X, y, cv=10, scoring='accuracy')
 
             # summarize the fit of the model
-            printResults(crossScoresF1, actual_leagues, predicted_leagues, name)
+            crossScoresMean = (crossScoresPrecision.mean(), crossScoresRecall.mean(), crossScoresF1.mean(), crossScoresAccuracy.mean())
+            crossScoresStd  = (crossScoresPrecision.std() * 2, crossScoresRecall.std() * 2, crossScoresF1.std() * 2, crossScoresAccuracy.std() * 2)
+            printResults(crossScoresMean, crossScoresStd, actual_leagues, predicted_leagues, name)
             resultsPerClassifier[name].append(
-                (crossScoresPrecision.mean(), crossScoresRecall.mean(), crossScoresF1.mean(), 0))
+                crossScoresMean)
                 #(metrics.precision_recall_fscore_support(actual_leagues, predicted_leagues, average='weighted'))
 
     printClassifierReport(resultsPerClassifier)
@@ -126,19 +139,19 @@ def getClassifiers():
                 # n_estimators: number of trees in the forest, default: 10
                 # criterion: 1) "gini" (default) for the Gini impurity 2) "entropy" for the information gain.
                 # max_depth: how deep can a tree be max; default: none
-                (RandomForestClassifier(n_estimators=i, criterion='entropy', max_depth=100), name))
+                (RandomForestClassifier(n_estimators=i, criterion=forestCriterion, max_depth=forestMaxDepth), name))
         if "knn" in ALGORITHMS:
             name = "kNN (n={0})".format(i)
             classifiers.append(
                 # n_neighbors: number of neighbours to use, default: 5
                 # weights: 1) 'uniform' (default): weighted equally. 2) 'distance': closer neighbors => more influence
                 # algorithm to compute the NN: 1) 'ball_tree' will use BallTree 2) 'kd_tree' will use KDTree
-                (KNeighborsClassifier(n_neighbors=i), name))
+                (KNeighborsClassifier(n_neighbors=i, weights=knnWeights, algorithm=knnAlgorithm), name))
         if "bayes" in ALGORITHMS:
-            name = "Naive Bayes (priors={0})".format(i)
+            name = "Naive Bayes (priors={0})".format('None')
             classifiers.append(
                 # priors: prior probabilities of the classes; default: 'none'
-                (GaussianNB(priors=i), name))
+                (GaussianNB(priors=None), name))
         if "neural" in ALGORITHMS:
             name = "Neural Network (layers={0})".format(i)
             classifiers.append(
@@ -147,7 +160,8 @@ def getClassifiers():
                 # solver (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
                 # learning_rate (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
                 # max_iter : int, optional, default 200
-                (MLPClassifier(hidden_layer_sizes=i), name))
+                (MLPClassifier(hidden_layer_sizes=(i, ), activation=neuralActivation, solver=neuralSolver,
+                               learning_rate=neuralLearningRate, max_iter=neuralMaxIter), name))
     return classifiers
 
 def getSamplesAndTargets(data):
@@ -163,7 +177,7 @@ def getSamplesAndTargets(data):
     return samples, targets
 
 
-def printResults(cross_score, actual_leagues, predicted_leagues, classifier):
+def printResults(crossScoresMean, crossScoresStd, actual_leagues, predicted_leagues, classifier):
     print("\n", "=" * 80, "\n")
     print("=== Classifier:", classifier, "===\n")
     print("=== Classification Report: ===\n"
@@ -171,8 +185,11 @@ def printResults(cross_score, actual_leagues, predicted_leagues, classifier):
           "recall (How many relevant elements are selected?): TP / (TP + FN)\n"
           "f1 score to measure a test's accuracy (considers both precision and recall): 2*((PR * RC)/(PR + RC))\n"
           "support: #elements in this class\n", metrics.classification_report(actual_leagues, predicted_leagues))
-    print("=== Cross Validation Results: ===\n"
-          "Accuracy: %0.2f (+/- %0.2f)" % (cross_score.mean(), cross_score.std() * 2))
+    print("=== Cross Validation Results: ===\n",
+          "Precision: %0.2f (+/- %0.2f)\n" % (crossScoresMean[0], crossScoresStd[0]),
+          "Recall:    %0.2f (+/- %0.2f)\n" % (crossScoresMean[1], crossScoresStd[1]),
+          "F1 Score:  %0.2f (+/- %0.2f)\n" % (crossScoresMean[2], crossScoresStd[2]),
+          "Accuracy:  %0.2f (+/- %0.2f)\n" % (crossScoresMean[3], crossScoresStd[3]))
     print("=== Confusion Matrix: ===\n"
           "top: predicted values, left: actual values\n",
           metrics.confusion_matrix(actual_leagues, predicted_leagues))
@@ -181,7 +198,7 @@ def printResults(cross_score, actual_leagues, predicted_leagues, classifier):
     # print("f1-score:        %0.2f" % metrics.f1_score(actual_leagues, predicted_leagues, average='weighted'))
     # print("recall-score:    %0.2f" % metrics.recall_score(actual_leagues, predicted_leagues, average='weighted'))
     # print("precision-score: %0.2f" % metrics.precision_score(actual_leagues, predicted_leagues, average='weighted'))
-    print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
+    # print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_leagues, predicted_leagues))
 
 
 def printClassifierReport(resultsPerClassifier):
@@ -219,9 +236,9 @@ def printPlot(resultsPerClassifier):
     f1ScoreLine,   = plt.plot(xAxis, f1Score,   label='F1 Score')
     plt.legend(handles=[precisionLine, recallLine, f1ScoreLine])
     plt.ylabel('performance')
-    plt.xlabel('neighbors used')
+    plt.xlabel(X_LABEL)
     #plt.show()
-    plt.savefig('figures/knn2.png')
+    plt.savefig(PLOT_FILE_NAME)
     plt.close(fig)
 
 
