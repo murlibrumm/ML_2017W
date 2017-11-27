@@ -11,6 +11,17 @@ from sklearn.model_selection import train_test_split, cross_val_score, cross_val
 import numpy as np
 import warnings
 from functools import reduce
+from collections import defaultdict, OrderedDict
+import matplotlib.pyplot as plt
+from matplotlib import lines
+
+class LastUpdatedOrderedDict(OrderedDict):
+    "Store items in the order the keys were last added."
+
+    def __setitem__(self, key, value):
+        if key in self:
+            del self[key]
+        OrderedDict.__setitem__(self, key, value)
 
 
 # TODO:
@@ -22,21 +33,24 @@ from functools import reduce
 # maybe do the whole process X times => report on best/worst/avg results?
 
 # GLOBALS
-LOGGING          = False    # verbose logging output
+LOGGING          = True    # verbose logging output
 SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
-MISSING_VALUES   = 'most_frequent' # how to deal with missing values (delete, mean, median, most_frequent)
+MISSING_VALUES   = 'mean' # how to deal with missing values (delete, mean, median, most_frequent)
 SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
-NUMBER_OF_RUNS   = 5
+NUMBER_OF_RUNS   = 2
 RESULT_FORMAT    = '({:0.2f}, {:0.2f}, {:0.2f})'
 LABEL_ENC = preprocessing.LabelEncoder()
 LABEL_ENC.fit(['n','y','unknown'])
+EXPORT_PLOT = True
 
 CLASS_ENC = preprocessing.LabelEncoder()
 CLASS_ENC.fit(['democrat','republican'])
 
 # change the classifier values here!
-ALGORITHMS = ['forest', 'knn', 'bayes', 'neural'] #algorithms to use
+# ALGORITHMS = ['forest', 'knn', 'bayes', 'neural'] #algorithms to use
+ALGORITHMS = ['neural'] #algorithms to use
+algorithmParameter = (1, 10, 1)
 rf_n_estimators = 10 # default: 10
 knn_n_neighbors = 5 # default: 5
 nb_priors = None # default: None
@@ -64,7 +78,10 @@ def readDataset():
 
 def encodeDataset():
     global DATAFRAME
+    global countUnknown
+
     DATAFRAME = DATAFRAME.apply(lambda x: encodeLabels(x))
+    print(countUnknown)
 
 def handleMissingValues():
     global DATAFRAME
@@ -91,64 +108,94 @@ def handleMissingValues():
     print(DATAFRAME)
 
 def trainAndPredict(classifiers):
-    resultsPerClassifier = {}
+    resultsPerClassifier = LastUpdatedOrderedDict()
     for (model, name) in classifiers:
         resultsPerClassifier[name] = []
 
-    # perform cross validation
-    X, y = getSamplesAndTargets(DATAFRAME)
-    cross_scores = cross_val_score(model, X, y, cv=10)
-    cross_y_pred = cross_val_predict(model, X, y, cv=10)
 
-    for i in range (0, NUMBER_OF_RUNS):
-        # split into 80% training data, 20% test data
-        train, test = train_test_split(DATAFRAME, test_size=SPLIT_DATA)
+    # split into 80% training data, 20% test data
+    train, test = train_test_split(DATAFRAME, test_size=SPLIT_DATA)
 
-        # get training & test samples/targets
-        training_samples, training_target = getSamplesAndTargets(train)
-        test_samples,     actual_class  = getSamplesAndTargets(test)
+    # get training & test samples/targets
+    training_samples, training_target = getSamplesAndTargets(train)
+    test_samples,     actual_class  = getSamplesAndTargets(test)
 
-        for (model, name) in classifiers:
-            # for each classifier, do the training and evaluation
-            model.fit(training_samples, training_target)
+    for (model, name) in classifiers:
+        # for each classifier, do the training and evaluation
+        #model.fit(training_samples, training_target)
 
-            # predict the samples
-            predicted_class = model.predict(test_samples)
+        # predict the samples
+        #predicted_class = model.predict(test_samples)
 
-            # summarize the fit of the model
-            printResults(y, cross_scores, cross_y_pred, actual_class, predicted_class, name)
-            resultsPerClassifier[name].append(
-                metrics.precision_recall_fscore_support(actual_class, predicted_class, average='weighted'))
+        crossScoresPrecisionSum = 0
+        crossScoresRecallSum    = 0
+        crossScoresF1Sum        = 0
+
+        for i in range (0, NUMBER_OF_RUNS):
+            # perform cross validation
+            X, y = getSamplesAndTargets(DATAFRAME)
+            crossScoresPrecisionSum += cross_val_score(model, X, y, cv=10, scoring='recall_weighted').mean() #std = accuracy
+            crossScoresRecallSum    += cross_val_score(model, X, y, cv=10, scoring='precision_weighted').mean() #std = accuracy
+            crossScoresF1Sum        += cross_val_score(model, X, y, cv=10, scoring='f1_weighted').mean() #std = accuracy
+            cross_y_pred = cross_val_predict(model, X, y, cv=10)
+
+        crossScoresPrecision = crossScoresPrecisionSum/NUMBER_OF_RUNS
+        crossScoresRecall    = crossScoresRecallSum/NUMBER_OF_RUNS
+        crossScoresF1        = crossScoresF1Sum/NUMBER_OF_RUNS
+
+        resultsPerClassifier[name].append(
+            (crossScoresPrecision, crossScoresRecall, crossScoresF1, 0))
+
+        # summarize the fit of the model
+        printResults(y, crossScoresPrecision, cross_y_pred, actual_class, None, name)
+        # resultsPerClassifier[name].append(
+        #    metrics.precision_recall_fscore_support(actual_class, predicted_class, average='weighted'))
 
     printClassifierReport(resultsPerClassifier)
 
+    if EXPORT_PLOT:
+        printPlot(resultsPerClassifier)
+
+countUnknown = 0
+
 def encodeLabels(column):
+    global countUnknown
+
     if column.name == 'class':
+        dic = defaultdict(int)
+        for val in column:
+            dic[val] += 1
+        print(dic)
+
         return CLASS_ENC.transform(column)
     elif column.name == 'ID':
         return column
     else:
+        for val in column:
+            if val == 'unknown':
+                countUnknown += 1
         return LABEL_ENC.transform(column)
 
 def getClassifiers():
     # add the various classifiers
     classifiers = []
-    if "forest" in ALGORITHMS:
-        name = "Random Forests (n={0})".format(rf_n_estimators)
-        classifiers.append(
-            (RandomForestClassifier(n_estimators=rf_n_estimators, criterion='entropy', max_depth=100), name))
-    if "knn" in ALGORITHMS:
-        name = "kNN (n={0})".format(knn_n_neighbors)
-        classifiers.append(
-            (KNeighborsClassifier(n_neighbors=knn_n_neighbors), name))
-    if "bayes" in ALGORITHMS:
-        name = "Naive Bayes (priors={0})".format(nb_priors)
-        classifiers.append(
-            (GaussianNB(priors=nb_priors), name))
-    if "neural" in ALGORITHMS:
-        name = "Neural Network (layers={0})".format(mlp_layers)
-        classifiers.append(
-            (MLPClassifier(solver=mlp_solver, hidden_layer_sizes=mlp_layers), name))
+    for i in range(*algorithmParameter):
+        if "forest" in ALGORITHMS:
+            name = "Random Forests (n={0})".format(i)
+            classifiers.append(
+                (RandomForestClassifier(n_estimators=i, criterion='entropy', max_depth=100), name))
+        if "knn" in ALGORITHMS:
+            name = "kNN (n={0})".format(i)
+            classifiers.append(
+                (KNeighborsClassifier(n_neighbors=i), name))
+        if "bayes" in ALGORITHMS:
+            name = "Naive Bayes (priors={0})".format(i)
+            classifiers.append(
+                (GaussianNB(priors=i), name))
+        if "neural" in ALGORITHMS:
+            name = "Neural Network (layers={0},{1})".format(i*2,i)
+            classifiers.append(
+                (MLPClassifier(solver=mlp_solver, hidden_layer_sizes=(i*2,i)), name))
     return classifiers
 
 def getSamplesAndTargets(data):
@@ -163,18 +210,10 @@ def getSamplesAndTargets(data):
 def printResults(cross_actual_class, cross_score, cross_pred_class, actual_class, predicted_class, classifier):
     print("\n", "=" * 80, "\n")
     print("=== Classifier:", classifier, "===\n")
-    print("=== Classification Report: ===\n"
-          "precision (How many selected elements are relevant?): TP / (TP + FP)\n"
-          "recall (How many relevant elements are selected?): TP / (TP + FN)\n"
-          "f1 score to measure a test's accuracy (considers both precision and recall): 2*((PR * RC)/(PR + RC))\n"
-          "support: #elements in this class\n", metrics.classification_report(actual_class, predicted_class))
     print("=== Cross Validation Results: ===\n"
           "Accuracy: %0.2f (+/- %0.2f)" % (cross_score.mean(), cross_score.std() * 2), "\n"
           "Confusion matrix:\n",
           metrics.confusion_matrix(cross_actual_class, cross_pred_class))
-    print("=== Confusion Matrix: ===\n"
-          "top: predicted values, left: actual values\n",
-          metrics.confusion_matrix(actual_class, predicted_class))
     print()
     # here we can use 'weighted' or 'macro' => weighted adjusts for the number of instances per label
     # print("f1-score:        %0.2f" % metrics.f1_score(actual_class, predicted_class, average='weighted'))
@@ -200,6 +239,41 @@ def printClassifierReport(resultsPerClassifier):
         averageRow = list(map((lambda x: x / NUMBER_OF_RUNS), summedRows))
         print("average (P, R, F): ", RESULT_FORMAT.format(*averageRow))
 
+def printPlot(resultsPerClassifier):
+    precision = [results[0][0] for name, results in resultsPerClassifier.items()]
+    recall    = [results[0][1] for name, results in resultsPerClassifier.items()]
+    f1Score   = [results[0][2] for name, results in resultsPerClassifier.items()]
+    xAxis = list(range(*algorithmParameter))
+
+    printlog(list(range(*algorithmParameter)))
+    printlog(precision)
+    printlog(recall)
+    printlog(f1Score)
+
+    fig = plt.figure(figsize=(8, 8))
+
+    # p_line = lines.Line2D([], [], label="Precision", linestyle="--", color="red")
+    # r_line = lines.Line2D([], [], label="Recall", linestyle="-.", color="green")
+    # f_line = lines.Line2D([], [], label="F1", linestyle=None, color="blue")
+
+    precisionLine, = plt.plot(xAxis, precision, "r--", label='Precision')
+    recallLine,    = plt.plot(xAxis, recall,    "g-.", label='Recall')
+    f1ScoreLine,   = plt.plot(xAxis, f1Score,   "b",    label='F1')
+    plt.legend(handles=[precisionLine, recallLine, f1ScoreLine])
+    plt.ylabel('F1 Score')
+
+    # random forrest
+    # plt.xlabel('number of trees in the forest')
+
+    # knn
+    # plt.xlabel('neighbors used')
+
+    # neural
+    plt.xlabel('number of perceptrons of the second layer and half the number of perceptrons of the first layer')
+
+    # plt.show()
+    plt.savefig('figures/voting_neural_1-10 2nd nodes_missing value treatment.png')
+    plt.close(fig)
 
 def printlog(message):
     if (LOGGING):
