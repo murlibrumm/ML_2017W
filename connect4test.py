@@ -26,6 +26,34 @@ def split_samples(dataset, target_columns):
     return (samples, target)
 
 
+def add_result(targets, predictions, results, kind, param):
+    """Add the result to the given list of results"""
+    (precision, recall, fscore, support) = metrics.precision_recall_fscore_support(targets, predictions)
+
+    def avg(vals, weights):
+        """Calculate the weighted average of vals"""
+        res = 0
+        sum_weights = 0
+        min_len = min(len(vals), len(weights))
+        for i in range(0, min_len):
+            res += vals[i] * weights[i]
+            sum_weights += weights[i]
+
+        return res / sum_weights
+
+    # important!!
+    # the average has to be weighed, because there are not equally many samples in each class
+    precision = avg(precision, support)
+    recall = avg(recall, support)
+    fscore = avg(fscore, support)
+
+    result_tuple = (param, precision, recall, fscore)
+
+    new_results = results[kind]
+    new_results.append(result_tuple)
+    results[kind] = new_results
+
+
 def show_summary(targets, predictions, classifier):
     """Print the result of calculated predictions vs. actual targets for the classifier algorithm"""
     print("=" * 80)
@@ -108,33 +136,69 @@ print()
 (training_samples, training_target) = split_samples(train, ["Class"])
 (test_samples, test_target) = split_samples(test, ["Class"])
 
-# change the classifier values here!
-rf_n_estimators = 10 # default: 10
-knn_n_neighbors = 5 # default: 5
-nb_priors = None # default: None
-mlp_layers = (100) # default: (100,)
+iterations = range(0, 10)
+results = {"forest": [],
+           "knn":    [],
+           "bayes":  [],
+           "neural": []}
 
-# add the various classifiers
-classifiers = []
-if "forest" in algorithms:
-    name = "Random Forests (n={0})".format(rf_n_estimators)
-    classifiers.append((RandomForestClassifier(n_estimators=rf_n_estimators), name))
-if "knn" in algorithms:
-    name = "kNN (n={0})".format(knn_n_neighbors)
-    classifiers.append((KNeighborsClassifier(n_neighbors=knn_n_neighbors), name))
-if "bayes" in algorithms:
-    name = "Naive Bayes (priors={0})".format(nb_priors)
-    classifiers.append((GaussianNB(priors=nb_priors), name))
-if "neural" in algorithms:
-    name = "Neural Network (layers={0})".format(mlp_layers)
-    classifiers.append((MLPClassifier(hidden_layer_sizes=mlp_layers), name))
+set_rf_n_estimators = [10, 40, 60, 80, 100, 150, 200, 250, 300, 400]
+set_knn_n_neighbors = [5, 10, 25, 50, 100, 200, 300, 500, 1000, 2000]
+set_mlp_layers = [(100,) * (i + 1) for i in iterations]
 
-for (model, name) in classifiers:
-    # for each classifier, do the training and evaluation
-    model.fit(training_samples, training_target)
 
-    # predict the samples
-    predictions = model.predict(test_samples)
+for i in iterations:
 
-    # summarize the fit of the model
-    show_summary(test_target, predictions, name)
+    rf_n_estimators = set_rf_n_estimators[i]
+    knn_n_neighbors = set_knn_n_neighbors[i]
+    nb_priors = None
+    mlp_layers = set_mlp_layers[i]
+
+    # add the various classifiers
+    classifiers = []
+    if "forest" in algorithms:
+        kind = "forest"
+        param = rf_n_estimators
+        name = "Random Forests (n={0})".format(rf_n_estimators)
+        classifiers.append((RandomForestClassifier(n_estimators=rf_n_estimators), name, kind, param))
+    if "knn" in algorithms:
+        kind = "knn"
+        param = knn_n_neighbors
+        name = "kNN (n={0})".format(knn_n_neighbors)
+        classifiers.append((KNeighborsClassifier(n_neighbors=knn_n_neighbors), name, kind, param))
+    if "bayes" in algorithms:
+        kind = "bayes"
+        param = 0
+        name = "Naive Bayes (priors={0})".format(nb_priors)
+        classifiers.append((GaussianNB(priors=nb_priors), name, kind, param))
+
+        # why should nb run more than once, if we only have None as interesting parameter?
+        algorithms.remove("bayes")
+    if "neural" in algorithms:
+        kind = "neural"
+        param = len(mlp_layers)
+        name = "Neural Network (layers={0})".format(mlp_layers)
+        classifiers.append((MLPClassifier(hidden_layer_sizes=mlp_layers), name, kind, param))
+
+    for (model, name, kind, param) in classifiers:
+        # for each classifier, do the training and evaluation
+        model.fit(training_samples, training_target)
+
+        # predict the samples
+        predictions = model.predict(test_samples)
+
+        # summarize the fit of the model
+        show_summary(test_target, predictions, name)
+
+        # add the result to the results list
+        add_result(test_target, predictions, results, kind, param)
+
+with open("c4-results.txt", "w") as result_file:
+    for kind in results:
+        result_file.write("{0}\n".format(kind))
+
+        for (param, precision, recall, f1score) in results[kind]:
+            result_file.write("{0} {1} {2} {3}\n".format(param, precision, recall, f1score))
+
+        result_file.write("end {0}".format(kind))
+        result_file.write("\n")
