@@ -25,24 +25,25 @@ class LastUpdatedOrderedDict(OrderedDict):
 
 
 # GLOBALS
-LOGGING          = False    # verbose logging output
+LOGGING          = True    # verbose logging output
 SPLIT_DATA       = 0.2      # split dataset into training and testdata
 DATAFRAME        = None     # our dataframe
 MISSING_VALUES   = 'mean' # how to deal with missing values (delete, mean, median, most_frequent)
 SIGNIFICANT_COLS = False    # significant columns only (like APM, PACs, #Hotkeys)
-NUMBER_OF_RUNS   = 1
+NUMBER_OF_RUNS   = 4
 RESULT_FORMAT    = '({:0.2f}, {:0.2f}, {:0.2f})'
 CROSS_VALIDATION = False
 EXPORT_PLOT      = True
-X_LABEL          = 'number of hidden layers'
-PLOT_FILE_NAME   = 'figures/amazon_mlp_tanh.png'
+X_LABEL          = 'number of nodes in the second hidden layer'
+PLOT_FILE_NAME   = 'figures/amazon_neural.png'
 
 CLASS_ENC = preprocessing.LabelEncoder()
 SCALER = None
+bestModel = None
 
 # change the classifier values here!
 ALGORITHMS = ['neural'] #algorithms to use ['forest', 'knn', 'bayes', 'neural']
-algorithmParameter = (5, 100+1, 10) # set a parameter in range(start, end, jump)
+algorithmParameter = (200, 1000+1, 50) # set a parameter in range(start, end, jump)
 
 # forest params (algorithmParameter controls n_estimators)
 forestCriterion = 'gini' # "gini" (default) for the Gini impurity 2) "entropy" for the information gain.
@@ -55,7 +56,7 @@ knnAlgorithm = 'auto'      # algorithm to compute the NN: {'ball_tree', 'kd_tree
 # bayes params TODO
 
 # neural MLP params (algorithmParameter controls hidden_layer_sizes, default: (100,))
-neuralActivation = 'tanh' # (activation function for the hidden layer) : {‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default ‘relu’
+neuralActivation = 'relu' # (activation function for the hidden layer) : {‘identity’, ‘logistic’, ‘tanh’, ‘relu’}, default ‘relu’
 neuralSolver = 'adam' # (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
 neuralLearningRate = 'constant'# (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
 neuralMaxIter = 200 # max_iter : int, optional, default 200
@@ -64,31 +65,53 @@ neuralMaxIter = 200 # max_iter : int, optional, default 200
 warnings.filterwarnings("ignore", category=UndefinedMetricWarning)
 
 def main():
-    readDataset()
-    encodeDataset()
+    global DATAFRAME
+    DATAFRAME = readDataset('datasets/amazonReviews.800.train.csv')
+    DATAFRAME = encodeDataset(DATAFRAME)
     classifiers = getClassifiers()
     trainAndPredict(classifiers)
+    # predictTestData()
+
+def predictTestData():
+    global bestModel
+    testDf = readDataset('datasets/amazonReviews.700.test.csv')
+    testDf = encodeDataset(testDf)
+
+    testDf = prepareDataSet(testDf)
+
+    # get training & test samples/targets
+    test_samples,     actual_class = getSamplesAndTargets(testDf)
 
 
-def readDataset():
-    global DATAFRAME
+    # prediction of the provided test data
+    y_predicted_test = bestModel.predict(test_samples)
+    print(bestModel)
+    y_provided_pred_trans = CLASS_ENC.inverse_transform(y_predicted_test)
+    testdata_id = testDf['ID']
+    prediction = np.c_[testdata_id, y_provided_pred_trans]
+    np.savetxt("amazon_prediction.csv", prediction, delimiter=",", fmt='%s', header='ID,"class"', comments='')
+
+
+
+def readDataset(path):
     # csv => DataFrame
-    DATAFRAME = pd.read_csv('datasets/amazonReviews.800.train.csv')
+    df = pd.read_csv(path)
 
-    printlog('dataset size:' + str(DATAFRAME.shape))
-    print(DATAFRAME)
+    printlog('dataset size:' + str(df.shape))
+    print(df)
+    return df
 
-def encodeDataset():
-    global DATAFRAME
-    DATAFRAME = DATAFRAME.apply(lambda x: encodeLabels(x))
+def encodeDataset(df):
+    return df.apply(lambda x: encodeLabels(x))
 
 # call this method first with the trainingsdata
 def prepareDataSet(data):
     global SCALER
 
-    featureVal = data.drop(columns=['Class'])
-
-    preprocessing.StandardScaler().fit(featureVal)
+    if 'Class' in data.columns:
+        featureVal = data.drop(columns=['ID','Class'])
+    else:
+        featureVal = data.drop(columns=['ID'])
 
     if SCALER is None:
         SCALER = preprocessing.StandardScaler().fit(featureVal)
@@ -97,16 +120,22 @@ def prepareDataSet(data):
     scaled_DF.index = featureVal.index
     featureVal = scaled_DF
 
-    norm_DF = pd.DataFrame(preprocessing.normalize(featureVal, norm='l2'))
-    norm_DF.columns = featureVal.columns
-    norm_DF.index = featureVal.index
-    featureVal = norm_DF
+#    norm_DF = pd.DataFrame(preprocessing.normalize(featureVal, norm='l2'))
+#    norm_DF.columns = featureVal.columns
+#    norm_DF.index = featureVal.index
+#    featureVal = norm_DF
 
-    data = data.loc[:, 'Class':'Class'].join(featureVal)
+    if 'Class' in data.columns:
+        featuresWithClass = data.loc[:, 'Class':'Class'].join(featureVal)
+        data = data.loc[:, 'ID':'ID'].join(featuresWithClass)
+    else:
+        data = data.loc[:, 'ID':'ID'].join(featureVal)
 
     return data
 
 def trainAndPredict(classifiers):
+    global bestModel
+
     resultsPerClassifier = LastUpdatedOrderedDict()
     for (model, name) in classifiers:
         resultsPerClassifier[name] = []
@@ -136,6 +165,8 @@ def trainAndPredict(classifiers):
         for (model, name) in classifiers:
             # for each classifier, do the training and evaluation
             model.fit(training_samples, training_target)
+
+            bestModel = model
 
             # predict the samples
             predicted_class = model.predict(test_samples)
@@ -189,16 +220,20 @@ def getClassifiers():
                 # solver (for the weight optimization): {‘lbfgs’, ‘sgd’, ‘adam’}, default ‘adam’
                 # learning_rate (Learning rate schedule for weight updates).: {‘constant’, ‘invscaling’, ‘adaptive’}, default ‘constant’
                 # max_iter : int, optional, default 200
-                (MLPClassifier(hidden_layer_sizes=(i, ), activation=neuralActivation, solver=neuralSolver,
+                (MLPClassifier(hidden_layer_sizes=(10*i, i), activation=neuralActivation, solver=neuralSolver,
                                learning_rate=neuralLearningRate, max_iter=neuralMaxIter), name))
     return classifiers
 
 def getSamplesAndTargets(data):
     # get training samples (without class and ID)
-    samples = data.drop(['ID', 'Class'], axis=1)
+    if 'Class' in data.columns:
+        samples = data.drop(['ID', 'Class'], axis=1)
 
-    # get training target (class)
-    targets  = data['Class'].values
+        # get training target (class)
+        targets = data['Class'].values
+    else:
+        samples = data.drop(['ID'], axis=1)
+        targets = None
     return samples, targets
 
 
@@ -220,10 +255,10 @@ def printResults(cross_actual_class, cross_score, cross_pred_class, actual_class
           metrics.confusion_matrix(actual_class, predicted_class))
     print()
     # here we can use 'weighted' or 'macro' => weighted adjusts for the number of instances per label
-    # print("f1-score:        %0.2f" % metrics.f1_score(actual_class, predicted_class, average='weighted'))
-    # print("recall-score:    %0.2f" % metrics.recall_score(actual_class, predicted_class, average='weighted'))
-    # print("precision-score: %0.2f" % metrics.precision_score(actual_class, predicted_class, average='weighted'))
-    # print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_class, predicted_class))
+    print("f1-score:        %0.2f" % metrics.f1_score(actual_class, predicted_class, average='weighted'))
+    print("recall-score:    %0.2f" % metrics.recall_score(actual_class, predicted_class, average='weighted'))
+    print("precision-score: %0.2f" % metrics.precision_score(actual_class, predicted_class, average='weighted'))
+    print("accuracy-score:  %0.2f" % metrics.accuracy_score(actual_class, predicted_class))
 
 
 def printClassifierReport(resultsPerClassifier):
