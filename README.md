@@ -18,7 +18,7 @@
 
 * Georg Faustmann (01326020)
 * Maximilian Moser (01326252)
-* Wolfgang Weintritt (0#######)
+* Wolfgang Weintritt (01327191)
 
 ## Requirements
 
@@ -26,3 +26,4 @@
   * pandas
   * numpy
   * scikit_learn
+  * matplotlib
